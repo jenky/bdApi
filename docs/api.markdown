@@ -36,7 +36,76 @@ With `user_id` is the ID of authenticated user; `timestamp` is the unix timestam
  * Authorization URI: `/oauth/authorize`
  * Access token exchange URI: `/oauth/token`
 
-### Discoverability
+Please note that the TTL can be reconfigured to make it expire sooner or much later.
+
+### Social Logins
+Since oauth2-2015030602, social logins are accepted as a way to authorize access to an user account. List of supported services: Facebook, Twitter and Google. The common flow is:
+
+ 1. Third party client authorize user via social service (e.g. awesomewebsite.com use Facebook Application A to authorize user).
+ 2. Third party client obtains access token to social service (e.g. awesomewebsite.com has Facebook access token T).
+ 3. Third party client submits access token to API endpoint to request access token to XenForo (e.g. awesomewebsite.com sends Facebook access token T to xenforo.com).
+ 4. XenForo verifies that access token is valid and third party client does have access to a XenForo account (e.g. xenforo.com contacts Facebook server to verify access token T then cross-matches to a XenForo user account U).
+ 5. XenForo generates API access token for its account (e.g. xenforo.com generates access token T2 which can be used in future API requests).
+
+It's important to note that third party client and XenForo systems don't need to use the same social service credentials (e.g. awesomewebsite.com use Facebook Application A while xenforo.com can use Facebook Application B).
+
+#### Responses
+If an API access token can be generated, the response is similar to a regular POST `/oauth/token` with token and refresh_token amongst other things. Previously user-granted scopes and auto-authorized scopes will be attached to the token.
+
+Otherwise, the API will try to response with as much information for a new user account as possible. The data is ready to be used with POST `/users`.
+
+#### POST `/oauth/token/facebook`
+Request API access token using Facebook access token. Because Facebook uses app-scoped user_id, it is not possible to recognize user across different Facebook Applications using any unique ID. Therefore email is used to find registered user.
+
+Parameters:
+
+ * `client_id` (__required__)
+ * `client_secret` (__required__)
+ * `facebook_token` (__required__)
+
+Required scopes:
+
+ * N/A
+
+#### POST `/oauth/token/twitter`
+Request API access token using Twitter access token.
+
+Parameters:
+
+ * `client_id` (__required__)
+ * `client_secret` (__required__)
+ * `twitter_uri` (__required__): the full `/account/verify_credentials.json` uri that has been used to calculate OAuth signature.
+ * `twitter_auth` (__required__): the complete authentication header that starts with "OAuth". Consult [Twitter document](https://dev.twitter.com/oauth/overview/creating-signatures) for more information.
+
+Required scopes:
+
+ * N/A
+
+#### POST `/oauth/token/google`
+Request API access token using Google access token.
+
+Parameters:
+
+ * `client_id` (__required__)
+ * `client_secret` (__required__)
+ * `google_token` (__required__)
+
+Required scopes:
+
+ * N/A
+
+#### POST `/oauth/token/admin`
+Request API access token for another user. This requires `admincp` scope and the current user must have sufficient system permissions. Since oauth2-2015030902.
+
+Parameters:
+
+ * `user_id` (__required__): id of the user that needs access token.
+
+Required scopes:
+
+ * `admincp`
+
+## Discoverability
 System information and availability can be determined by sending a GET request to `/` (index route). A list of resources will be returned. If the request is authenticated, the revisions of API system and installed modules will also made available for further inspection.
 
 ## Common Parameters
@@ -155,7 +224,8 @@ Detail information of a category.
                 edit: (boolean),
                 delete: (boolean),
                 follow: (boolean), // since forum-2014053001
-                create_thread: (boolean)
+                create_thread: (boolean),
+                upload_attachment: (boolean) # since forum-2014081202
             }
         }
     }
@@ -252,6 +322,53 @@ Required scopes:
 
  * `read`
 
+## Navigation
+
+### GET `/navigation`
+List of navigation elements within the system. Since forum-2015030601.
+
+    {
+        elements: [
+            (category) + {
+                navigation_type: "category",
+                navigation_id: (int),
+                has_sub_elements: (boolean)
+            },
+            (forum) + {
+                navigation_type: "forum",
+                navigation_id: (int),
+                has_sub_elements: (boolean)
+            },
+            {
+                link_id: (int),
+                link_title: (string),
+                link_description: (string),
+                links {
+                    target: (uri),
+                    sub-elements: (uri),
+                },
+                permissions: {
+                    view: (boolean),
+                    edit: (boolean),
+                    delete: (boolean),
+                },
+                navigation_type: "linkforum",
+                navigation_id: (int),
+                has_sub_elements: (boolean)
+            },
+            ...
+        ],
+        elements_count: (int)
+    }
+
+Parameters:
+
+ * `parent` (_optional_): id of parent element. If exists, filter elements that are direct children of that element.
+
+Required scopes:
+
+ * `read`
+
 ## Threads
 
 ### GET `/threads`
@@ -273,10 +390,11 @@ List of threads in a forum (with pagination).
 Parameters:
 
  * `forum_id` (__required__): ids of needed forums (separated by comma). Support for multiple ids were added in forum-2014011801.
- * `sticky` (_optional_): filter to get sticky threads only. If `sticky` = 1, `page` and `limit` parameters will be ignored.
+ * `sticky` (_optional_): filter to get only sticky (`sticky`=1) or non-sticky (`sticky`=0) threads. By default, all threads will be included and sticky ones will be at the top of the result on the first page. In mixed mode, sticky threads are not counted towards `threads_total` and does not affect pagination.
  * `page` (_optional_): page number of threads.
  * `limit` (_optional_): number of threads in a page. Default value depends on the system configuration.
  * `order` (_optional_): ordering of threads. Support `natural`, `thread_create_date`, `thread_create_date_reverse`, `thread_update_date`, `thread_update_date_reverse`.
+ * `thread_ids` (_optional_): ids of needed threads (separated by comma). If this paramater is set, all other parameters will be ignored. Since forum-2015032401.
 
 Required scopes:
 
@@ -368,7 +486,8 @@ Detail information of a thread.
                 edit: (boolean),
                 delete: (boolean),
                 follow: (boolean), // since forum-2014052903
-                post: (boolean)
+                post: (boolean),
+                upload_attachment: (boolean) # since forum-2014081203
             }
         }
     }
@@ -535,7 +654,8 @@ List of posts in a thread (with pagination).
             pages: (int),
             next: (uri),
             prev: (uri)
-        }
+        },
+        subscription_callback: (uri) # since subscription-2014081002
     }
 
 Parameters:
@@ -544,6 +664,9 @@ Parameters:
  * `page` (_optional_): page number of posts.
  * `limit` (_optional_): number of threads in a page. Default value depends on the system configuration.
  * `order` (_optional_, since forum-2013122401): ordering of posts. Support `natural`, `natural_reverse`.
+ * `page_of_post_id` (_optional_, since forum-2014092401): id of a post, the page number that contains the specified post will be used.
+ * `post_ids` (_optional_): ids of needed posts (separated by comma). If this paramater is set, all other parameters will be ignored. Since forum-2015032403.
+
 
 Required scopes:
 
@@ -595,14 +718,18 @@ Detail information of a post.
             poster_user_id: (int),
             poster_username: (string),
             post_create_date: (unix timestamp in seconds),
+            post_update_date: (unix timestamp in seconds), #since forum-2015030701
             post_body: (string),
             post_body_html: (string),
             post_body_plain_text: (string),
+            signature: (string), # since forum-2014082801
+            signature_html: (string), # since forum-2014082801
+            signature_plain_text: (string), # since forum-2014082801
             post_like_count: (int),
             post_attachment_count: (int),
             post_is_published: (boolean),
             post_is_deleted: (boolean),
-            post_is_first_post: (boolean), # since 2013122402
+            post_is_first_post: (boolean), # since forum-2013122402
             post_is_liked: (boolean),
             attachments: [
                 {
@@ -610,13 +737,15 @@ Detail information of a post.
                     post_id: (int),
                     attachment_download_count: (int),
                     filename: (string), # since 2014052201
+                    attachment_is_inserted: (boolean), # since forum-2014091001
                     links: {
                         permalink: (uri),
                         data: (uri),
                         thumbnail: (uri)
                     },
                     permissions: {
-                        view: (boolean)
+                        view: (boolean),
+                        delete: (boolean) # since forum-2014081201
                     }
                 },
                 ...
@@ -627,6 +756,8 @@ Detail information of a post.
                 thread: (uri),
                 poster: (uri),
                 likes: (uri),
+                report: (uri), # since forum-2014103003
+                attachments: (uri),
                 poster_avatar: (uri)
             },
             permissions: {
@@ -634,7 +765,9 @@ Detail information of a post.
                 edit: (boolean),
                 delete: (boolean),
                 reply: (boolean), #since forum-2014052901
-                like: (boolean)
+                like: (boolean),
+                report: (boolean), # since forum-2014103003
+                upload_attachment: (boolean) # since forum-2014081204
             }
         }
     }
@@ -780,6 +913,22 @@ Required scopes:
 
  * `post`
 
+### POST `/posts/:postId/report`
+Report a post.
+
+    {
+        status: "ok",
+        message: "Changes Saved"
+    }
+
+Parameters:
+
+ * `message` (__required__): reason of the report.
+
+Required scopes:
+
+ * `post`
+
 ## Users
 
 ### GET `/users`
@@ -818,7 +967,7 @@ Create a new user.
 
 Parameters:
 
- * `email` (__required__): email of the new user.
+ * `user_email` (__required__): email of the new user.
  * `username` (__required__): username of the new user.
  * `password` (__required__): password of the new user.
  * `password_algo` (_optional_): algorithm used to encrypt the `password` parameter. See [Encryption](#encryption) section for more information.
@@ -831,6 +980,27 @@ Required scopes:
 
  * `post`
 
+### GET `/users/find`
+Filtered list of users by username or email. Since forum-2015030901.
+
+    {
+        users: [
+            (user),
+            (user),
+            ...
+        ]
+    }
+
+Parameters:
+
+ * `username` (_optional_): username to filter. Usernames start with the query will be returned.
+ * `user_email` (_optional_): email to filter. Requires `admincp` scope.
+
+Required scopes:
+
+ * `read`
+ * `admincp`
+
 ### GET `/users/:userId`
 Detail information of a user.
 
@@ -842,21 +1012,29 @@ Detail information of a user.
             user_message_count: (int),
             user_register_date: (unix timestamp in seconds),
             user_like_count: (int),
-            user_is_visitor: (boolean), // since 2013110601
-            user_email: (email), // user_is_visitor==true only
-            user_dob_day: (int), // user_is_visitor==true only
-            user_dob_month: (int), // user_is_visitor==true only
-            user_dob_year: (int), // user_is_visitor==true only
-            user_timezone_offset: (int), // user_is_visitor==true only
-            user_has_password: (boolean), // user_is_visitor==true only
-            user_unread_conversation_count: (int), // since 2014022601, user_is_visitor==true only, requires conversate scope
+            user_is_visitor: (boolean), // since forum-2013110601
+            *user_email: (email),
+            *user_dob_day: (int),
+            *user_dob_month: (int),
+            *user_dob_year: (int),
+            *user_timezone_offset: (int),
+            *user_has_password: (boolean),
+            *user_unread_conversation_count: (int), // since forum-2014022601, requires conversate scope
             user_is_valid: (boolean),
             user_is_verified: (boolean),
             user_is_followed: (boolean), // since forum-2014052902
-            user_custom_fields: { // user_is_visitor==true only, since 2013110601
+            *user_custom_fields: { // since forum-2013110601
                 field_id: (field_value),
                 ...
-            }
+            },
+            *user_groups: [ // since forum-2014092301
+                {
+                    user_group_id: (int),
+                    user_group_title: (string),
+                    is_primary_group: (boolean)
+                },
+                ...
+            ],
             links: {
                 permalink: (uri),
                 detail: (uri),
@@ -867,11 +1045,15 @@ Detail information of a user.
             permissions: {
                 follow: (boolean)
             },
-            self_permissions: { // user_is_visitor==true only
-                create_conversation: (boolean)
+            *self_permissions: {
+                create_conversation: (boolean),
+                upload_attachment_conversation: (boolean) # since forum-2014081801
             }
-        }
+        },
+        subscription_callback: (uri) # since subscription-2014092301
     }
+
+Fields with asterisk (*) are protected data. They are only included when the authenticated user is the requested user or the authenticated user is an admin with `user` admin permission and has `admincp` scope.
 
 Parameters:
 
@@ -880,6 +1062,30 @@ Parameters:
 Required scopes:
 
  * `read`
+
+### PUT `/users/:userId`
+Edit a user. Since forum-2015041501. The introduction of this method makes POST `/users/:userId/password` deprecated.
+
+    {
+        status: "ok",
+        message: "Changes Saved"
+    }
+
+Parameters:
+
+ * `user_email` (_optional_): new email of the user.
+ * `username` (_optional_): new username of the user. Changing username requires Administrator permission.
+ * `password` (_optional_): data of the new password.
+ * `user_dob_day` (_optional_): new date of birth (day) of the user. This parameter must come together with `user_dob_month` and `user_dob_year`. User can add his/her own date of birth but changing existing data requires Administrator permission.
+ * `user_dob_month` (_optional_): new date of birth (month) of the user.
+ * `user_dob_year` (_optional_): new date of birth (year) of the user.
+ * `password_old` (_optional_): data of the existing password, it is not required if (1) the current authenticated user has `user` admin permission, (2) the `admincp` scope is granted and (3) the user being edited is not the current authenticated user.
+ * `password_algo` (_optional_): algorithm used to encrypt the `password` and `password_old` parameters. See [Encryption](#encryption) section for more information.
+
+Required scopes:
+
+ * `post`
+ * `admincp`
 
 ### POST `/users/:userId/avatar`
 Upload avatar for a user.
@@ -987,8 +1193,54 @@ Required scopes:
 
  * `read`
 
-### POST `/users/:userId/password`
-Change password of a user.
+### GET `/users/groups`
+List of all user groups. Since forum-2014092301.
+
+    {
+        user_groups: [
+            {
+                user_group_id: (int),
+                user_group_title: (string)
+            },
+            ...
+        ]
+    }
+
+Parameters:
+
+ * N/A
+
+Required scopes:
+
+ * `read`
+ * `admincp`
+
+### GET `/users/:userId/groups`
+List of a user's groups. Since forum-2014092301.
+
+    {
+        user_groups: [
+            {
+                user_group_id: (int),
+                user_group_title: (string),
+                is_primary_group: (boolean)
+            },
+            ...
+        ],
+        user_id: (int)
+    }
+
+Parameters:
+
+ * N/A
+
+Required scopes:
+
+ * `read`
+ * `admincp` (not required if viewing groups of current authenticated user)
+
+### POST `/users/:userId/groups`
+Change user groups of a user. Since forum-2014092301.
 
     {
         status: "ok",
@@ -997,16 +1249,19 @@ Change password of a user.
 
 Parameters:
 
- * `password_old` (__required__): data of the existing password.
- * `password` (__required__): data of the new password.
- * `password_algo` (_optional_): algorithm used to encrypt the `password` parameter. See [Encryption](#encryption) section for more information.
+ * `primary_group_id` (__required__): id of new primary group.
+ * `secondary_group_ids` (__required__): array of ids of new secondary groups.
 
 Required scopes:
 
  * `post`
+ * `admincp`
 
 ### GET `/users/me`
 Alias for GET `/users/:userId` for authorized user.
+
+### PUT `/users/me`
+Alias for PUT `/users/:userId` for authorized user.
 
 ### POST `/users/me/avatar`
 Alias for POST `/users/:userId/avatar` for authorized user.
@@ -1020,10 +1275,295 @@ Alias for GET `/users/:userId/followers` for authorized user.
 ### GET `/users/me/followings`
 Alias for GET `/users/:userId/followings` for authorized user.
 
-### POST `/users/me/password`
-Alias for POST `/users/:userId/password` for authorized user.
+### GET `/users/me/groups`
+Alias for GET `/users/:userId/groups` for authorized user. Since forum-2014092301.
 
-## Conversation
+### POST `/users/me/groups`
+Alias for POST `/users/:userId/groups` for authorized user. Since forum-2014092301.
+
+## Profile Posts
+
+### GET `/users/:userId/timeline`
+List of profile posts on a user timeline (with pagination). Since forum-2015042001.
+
+    {
+        profile_posts: [
+            (profile_post),
+            (profile_post),
+            ...
+        ],
+        profile_posts_total: (int),
+        user: (user),
+        links {
+            pages: (int),
+            next: (uri),
+            prev: (uri)
+        }
+    }
+
+Parameters:
+
+ * `page` (_optional_): page number of profile posts.
+ * `limit` (_optional_): number of profile posts in a page. Default value depends on the system configuration.
+
+Required scopes:
+
+ * `read`
+
+### POST `/users/:userId/timeline`
+Create a new profile post on a user timeline. Since forum-2015042001.
+
+    {
+        profile_post: (profile_post)
+    }
+
+Parameters:
+
+ * `post_body` (__required__): content of the new profile post.
+
+Required scopes:
+
+ * `post`
+
+
+### GET `/users/me/timeline`
+Alias for GET `/users/:userId/timeline` for authorized user. Since forum-2015042001.
+
+### POST `/users/me/groups`
+Alias for POST `/users/:userId/timeline` for authorized user. Since forum-2015042001.
+
+### GET `/profile-posts/:profilePostId`
+Detail information of a profile post. Since forum-2015042001.
+
+    {
+        profile_post: {
+            profile_post_id: (int),
+            timeline_user_id: (int),
+            poster_user_id: (int),
+            poster_username: (string),
+            post_create_date: (unix timestamp in seconds),
+            post_body: (string),
+            post_like_count: (int),
+            post_comment_count: (int),
+            post_is_published: (boolean),
+            post_is_deleted: (boolean),
+            post_is_liked: (boolean),
+            links: {
+                permalink: (uri),
+                detail: (uri),
+                timeline: (uri),
+                timeline_user: (uri),
+                poster: (uri),
+                likes: (uri),
+                comments: (uri),
+                report: (uri),
+                poster_avatar: (uri)
+            },
+            permissions: {
+                view: (boolean),
+                edit: (boolean),
+                delete: (boolean),
+                like: (boolean),
+                comment: (boolean),
+                report: (boolean)
+            }
+        }
+    }
+
+Parameters:
+
+ * N/A
+
+Required scopes:
+
+ * `read`
+
+### PUT `/profile-posts/:profilePostId`
+Edit a profile post. Since forum-2015042001.
+
+    {
+        profile_post: (profile_post)
+    }
+
+Parameters:
+
+ * `post_body` (__required__): new content of the profile post.
+
+Required scopes:
+
+ * `post`
+
+### DELETE `/profile-posts/:profilePostId`
+Delete a profile post. Since forum-2015042001.
+
+    {
+        status: "ok",
+        message: "Changes Saved"
+    }
+
+Parameters:
+
+ * N/A
+
+Required scopes:
+
+ * `post`
+
+
+### GET `/profile-posts/:profilePostId/likes`
+List of users who liked a profile post. Since forum-2015042001.
+
+    {
+        users: [
+            {
+                user_id: (int),
+                username: (string)
+            },
+            ...
+        ]
+    }
+
+Parameters:
+
+ * N/A
+
+Required scopes:
+
+ * `read`
+
+### POST `/profile-posts/:profilePostId/likes`
+Like a profile post. Since forum-2015042001.
+
+    {
+        status: "ok",
+        message: "Changes Saved"
+    }
+
+Parameters:
+
+ * N/A
+
+Required scopes:
+
+ * `post`
+
+### DELETE `/profile-posts/:profilePostId/likes`
+Unlike a profile post. Since forum-2015042001.
+
+    {
+        status: "ok",
+        message: "Changes Saved"
+    }
+
+Parameters:
+
+ * N/A
+
+Required scopes:
+
+ * `post`
+
+### GET `/profile-posts/:profilePostId/comments`
+List of comments of a profile post. Since forum-2015042001.
+
+    {
+        comments: [
+            (profile_post > comment),
+            ...
+        ]
+    }
+
+Parameters:
+
+ * N/A
+
+Required scopes:
+
+ * `read`
+
+### POST `/profile-posts/:profilePostId/comments`
+Create a new profile post comment. Since forum-2015042001.
+
+    {
+        comment: (profile_post > comment)
+    }
+
+Parameters:
+
+ * `comment_body` (__required__): content of the new profile post comment.
+
+Required scopes:
+
+ * `post`
+
+### GET `/profile-posts/:profilePostId/comments/:commentId`
+Detail information of a profile post comment. Since forum-2015042001.
+
+	{
+		comment: {
+			comment_id: (int),
+			timeline_user_id: (int),
+			profile_post_id: (int),
+			comment_user_id: (int),
+			comment_username: (string),
+			comment_create_date: (unix timestamp in seconds),
+			comment_body: (string),
+			links: {
+				detail: (uri),
+				profile_post: (uri),
+				timeline: (uri),
+				timeline_user: (uri),
+				poster: (uri),
+				poster_avatar: (uri)
+			},
+			permissions: {
+				view: (boolean),
+				delete: (boolean)
+			}
+		}
+	}
+
+Parameters:
+
+ * N/A
+
+Required scopes:
+
+ * `read`
+
+### DELETE `/profile-posts/:profilePostId/comments/:commentId`
+Delete a profile post's comment. Since forum-2015042001.
+
+    {
+        status: "ok",
+        message: "Changes Saved"
+    }
+
+Parameters:
+
+ * N/A
+
+Required scopes:
+
+ * `post`
+
+### POST `/profile-posts/:profilePostId/report`
+Report a profile post. Since forum-2015042001.
+
+    {
+        status: "ok",
+        message: "Changes Saved"
+    }
+
+Parameters:
+
+ * `message` (__required__): reason of the report.
+
+Required scopes:
+
+ * `post`
+
+## Conversations
 
 ### GET `/conversations`
 List of conversations (with pagination).
@@ -1104,7 +1644,8 @@ Detail information of a conversation.
             },
             permissions: {
                 reply: (boolean),
-                delete: (boolean)
+                delete: (boolean),
+                upload_attachment: (boolean) # since forum-2014081801
             }
         }
     }
@@ -1246,19 +1787,25 @@ Detail information of a message.
             message_body: (string),
             message_body_html: (string),
             message_body_plain_text: (string),
+            signature: (string), # since forum-2014082801
+            signature_html: (string), # since forum-2014082801
+            signature_plain_text: (string), # since forum-2014082801
+            message_account_count: (int),
             attachments: [  # since forum-2014053003
                 {
                     attachment_id: (int),
                     message_id: (int),
                     attachment_download_count: (int),
                     filename: (string),
+                    attachment_is_inserted: (boolean), # since forum-2014091001
                     links: {
                         permalink: (uri),
                         data: (uri),
                         thumbnail: (uri)
                     },
                     permissions: {
-                        view: (boolean)
+                        view: (boolean),
+                        delete: (boolean) # since forum-2014081801
                     }
                 },
                 ...
@@ -1273,7 +1820,8 @@ Detail information of a message.
                 view: (boolean),
                 edit: (boolean),
                 delete: (boolean),
-                reply: (boolean)
+                reply: (boolean),
+                upload_attachment: (boolean) # since forum-2014081801
             }
         }
     }
@@ -1360,25 +1908,52 @@ Required scopes:
 ## Notifications
 
 ### GET `/notifications`
-List of conversations (with pagination). Since forum-2014022602.
+List of notifications. Since forum-2014022602.
 
     {
         notifications: [
             {
                 notification_id: (int),
                 notification_create_date: (unix timestamp in seconds),
-                creator_user_id: (int),
-                creator_username: (string),
-                notification_html: (string)
+                creator_user_id: (int), # since subscription-2014081001
+                creator_username: (string), # since subscription-2014081001
+                notification_type: (string), # since forum-2014080901
+                notification_html: (string),
+                links: {
+                    content: (uri), # since forum-2015041001
+                }
             },
             ...
-        ]
+        ],
+        subscription_callback: (uri) # since subscription-2014081002
     }
 
 Required scopes:
 
  * `read`
 
+### GET `/notifications/content`
+Get associated content of notification. The response depends on the content type. Since forum-2015041001.
+
+Parameters:
+
+ * `notification_id` (__required__): id of the notification.
+
+Required scopes:
+
+ * `read`
+
+### POST `/notifications/read`
+Mark notifications as read. Since forum-2014092701.
+
+    {
+        status: "ok",
+        message: "Changes Saved"
+    }
+
+Required scopes:
+
+ * `post`
 
 ## Searching
 
@@ -1388,8 +1963,12 @@ Search for threads.
     {
         threads: [
             {
-                thread_id: (int)
+				thread_id: (int)
             },
+            ...
+        ],
+        data: [
+            (thread),
             ...
         ]
     }
@@ -1397,8 +1976,10 @@ Search for threads.
 Parameters:
 
  * `q` (__required__): query to search for.
- * `limit` (_optional_): maximum number of result threads. The limit may get decreased if the value is too large (depending on the system configuration).
- * `forum_id` (_optional_): id of the container forum to search for threads. Child forums of the specified forum will be included in the search.
+ * `limit` (_optional_): maximum number of results. The limit may get decreased if the value is too large (depending on the system configuration).
+ * `forum_id` (_optional_): id of the container forum to search for contents. Child forums of the specified forum will be included in the search.
+ * `user_id` (_optional_): id of the creator to search for contents. Since forum-2015041502.
+ * `data_limit` (_optional_): number of content data to be returned. By default, no data is returned. Since forum-2015032403.
 
 Required scopes:
 
@@ -1410,18 +1991,55 @@ Search for posts.
     {
         posts: [
             {
-                post_id: (int)
+				post_id: (int)
             },
             ...
+        ],
+        data: [
+            (post),
+            ... 
         ]
     }
 
 Parameters:
 
  * `q` (__required__): query to search for.
- * `limit` (_optional_): maximum number of result posts. The limit may get decreased if the value is too large (depending on the system configuration).
- * `forum_id` (_optional_): id of the container forum to search for posts. Child forums of the specified forum will be included in the search.
+ * `limit` (_optional_): maximum number of results. The limit may get decreased if the value is too large (depending on the system configuration).
+ * `forum_id` (_optional_): id of the container forum to search for contents. Child forums of the specified forum will be included in the search.
  * `thread_id` (_optional_): id of the container thread to search for posts.
+ * `user_id` (_optional_): id of the creator to search for contents. Since forum-2015041502.
+ * `data_limit` (_optional_): number of content data to be returned. By default, no data is returned. Since forum-2015032403.
+
+Required scopes:
+
+ * `read`
+
+### POST `/search/profile-posts`
+Alias for POST `/search` but only search profile posts. Since forum-2015042001.
+
+### POST `/search`
+Search for all supported contents. Since forum-2015042002.
+
+    {
+        data: [
+            (profile_post),
+            ...
+        ],
+        data_total: (int),
+        links: {
+            pages: (int),
+            next: (uri),
+            prev: (uri)
+        }
+    }
+
+Parameters:
+
+ * `q` (__required__): query to search for.
+ * `forum_id` (_optional_): id of the container forum to search for contents. Child forums of the specified forum will be included in the search.
+ * `user_id` (_optional_): id of the creator to search for contents.
+ * `page` (_optional_): page number of results. Since forum-2015042301.
+ * `limit` (_optional_): number of results in a page. Default value depends on the system configuration. Since forum-2015042301.
 
 Required scopes:
 
@@ -1469,3 +2087,25 @@ Parameters (for a single job):
 Required scopes:
 
  * N/A
+
+## Subscriptions
+Clients can subscribe to certain events to receive real time ping when data is changed within the system. The subscription system uses the [PubSubHubbub protocol](https://code.google.com/p/pubsubhubbub/) to communicate with hubs and subscribers. Since subscription-2014081001.
+
+List of supported topics:
+
+ * `user_x` (x is the user_id of the interested user): receives ping when user data is inserted, updated or deleted. The registered callback will be included in GET `/users/:userId` as parameter `subscription_callback`.
+ * `user_notification_x` (x is the user_id of the interested user): receives ping when user gets a new notification. Notification data will be included in the ping. The registered callback will be included in GET `/notifications` as parameter `subscription_callback`.
+ * `thread_post_x` (x is the thread_id of the interested thread): receives ping when a post in the thread is inserted, updated or deleted. The registered callback will be included in GET `/posts?thread_id=x` as parameter `subscription_callback`.
+
+For supported resources, two `Link` HTTP headers will be included. It is recommended to check for these headers before issuing subscribe request because webmaster can disable some or all types of subscriptions.
+
+    Link: <topic url>; rel="self"
+    Link: <hub url>; rel="hub"
+
+### Example subscribe request
+
+    curl -XPOST http://domain.com/api/subscriptions \
+        -d 'oauth_token=$token' \
+        -d 'hub.callback=$callback_url' \
+        -d 'hub.mode=subscribe' \
+        -d 'hub.topic=$topic'

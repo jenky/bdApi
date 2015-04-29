@@ -2,97 +2,94 @@
 
 class bdApi_ViewRenderer_Json extends XenForo_ViewRenderer_Json
 {
-	public function renderError($error)
-	{
-		if (!is_array($error))
-		{
-			$error = array($error);
-		}
+    public function renderError($error)
+    {
+        bdApi_Data_Helper_Cors::addHeaders($this, $this->_response);
 
-		return self::jsonEncodeForOutput(array('errors' => $error));
-	}
+        if (!is_array($error)) {
+            $error = array($error);
+        }
 
-	public function renderMessage($message)
-	{
-		return self::jsonEncodeForOutput(array(
-			'status' => 'ok',
-			'message' => $message
-		));
-	}
+        return self::jsonEncodeForOutput(array('errors' => $error));
+    }
 
-	public function renderRedirect($redirectType, $redirectTarget, $redirectMessage = null, array $redirectParams = array())
-	{
-		switch ($redirectType)
-		{
-			case XenForo_ControllerResponse_Redirect::RESOURCE_CREATED:
-			case XenForo_ControllerResponse_Redirect::RESOURCE_UPDATED:
-			case XenForo_ControllerResponse_Redirect::SUCCESS:
-				$this->_response->setRedirect($redirectTarget, 303);
-				break;
+    public function renderMessage($message)
+    {
+        bdApi_Data_Helper_Cors::addHeaders($this, $this->_response);
 
-			case XenForo_ControllerResponse_Redirect::RESOURCE_CANONICAL:
-				$this->_response->setRedirect($redirectTarget, 307);
-				break;
+        return self::jsonEncodeForOutput(array(
+            'status' => 'ok',
+            'message' => $message
+        ));
+    }
 
-			case XenForo_ControllerResponse_Redirect::RESOURCE_CANONICAL_PERMANENT:
-				$this->_response->setRedirect($redirectTarget, 301);
-				break;
+    public function renderRedirect($redirectType, $redirectTarget, $redirectMessage = null, array $redirectParams = array())
+    {
+        bdApi_Data_Helper_Cors::addHeaders($this, $this->_response);
 
-			default:
-				throw new XenForo_Exception('Unknown redirect type');
-		}
+        switch ($redirectType) {
+            case XenForo_ControllerResponse_Redirect::RESOURCE_CREATED:
+            case XenForo_ControllerResponse_Redirect::RESOURCE_UPDATED:
+            case XenForo_ControllerResponse_Redirect::SUCCESS:
+                $this->_response->setRedirect($redirectTarget, 303);
+                break;
 
-		$this->_needsContainer = false;
+            case XenForo_ControllerResponse_Redirect::RESOURCE_CANONICAL:
+                $this->_response->setRedirect($redirectTarget, 307);
+                break;
 
-		return '';
-	}
+            case XenForo_ControllerResponse_Redirect::RESOURCE_CANONICAL_PERMANENT:
+                $this->_response->setRedirect($redirectTarget, 301);
+                break;
 
-	public function renderView($viewName, array $params = array(), $templateName = '', XenForo_ControllerResponse_View $subView = null)
-	{
-		$viewOutput = $this->renderViewObject($viewName, 'Json', $params, $templateName);
+            default:
+                throw new XenForo_Exception('Unknown redirect type');
+        }
 
-		if (is_array($viewOutput))
-		{
-			return self::jsonEncodeForOutput($viewOutput);
-		}
-		else
-		if ($viewOutput === null)
-		{
-			return self::jsonEncodeForOutput($this->getDefaultOutputArray($viewName, $params, $templateName));
-		}
-		else
-		{
-			return $viewOutput;
-		}
-	}
+        $this->_needsContainer = false;
 
-	public function getDefaultOutputArray($viewName, $params, $templateName)
-	{
-		return $params;
-	}
+        return '';
+    }
 
-	public static function jsonEncodeForOutput($input, $addDefaultParams = true)
-	{
-		if ($addDefaultParams)
-		{
-			self::_addDefaultParams($input);
-		}
+    public function renderView($viewName, array $params = array(), $templateName = '', XenForo_ControllerResponse_View $subView = null)
+    {
+        bdApi_Data_Helper_Cors::addHeaders($this, $this->_response);
+        $viewOutput = $this->renderViewObject($viewName, 'Json', $params, $templateName);
 
-		foreach (array_keys($input) as $inputKey)
-		{
-			if (strpos($inputKey, '_WidgetFramework') === 0)
-			{
-				// filter out [bd] Widget Framework junk
-				unset($input[$inputKey]);
-			}
-		}
+        if (is_array($viewOutput)) {
+            return self::jsonEncodeForOutput($viewOutput);
+        } else
+            if ($viewOutput === null) {
+                return self::jsonEncodeForOutput($this->getDefaultOutputArray($viewName, $params, $templateName));
+            } else {
+                return $viewOutput;
+            }
+    }
 
-		return XenForo_ViewRenderer_Json::jsonEncodeForOutput($input, false);
-	}
+    public function getDefaultOutputArray($viewName, $params, $templateName)
+    {
+        return $params;
+    }
 
-	protected static function _addDefaultParams(array &$params = array())
-	{
-		bdApi_Data_Helper_Core::addDefaultResponse($params);
-	}
+    public static function jsonEncodeForOutput($input, $addDefaultParams = true)
+    {
+        if ($addDefaultParams) {
+            self::_addDefaultParams($input);
+        }
+
+        foreach (array_keys($input) as $inputKey) {
+            if (strpos($inputKey, '_') === 0) {
+                // filter out internal params
+                unset($input[$inputKey]);
+            }
+        }
+
+        return XenForo_ViewRenderer_Json::jsonEncodeForOutput($input, false);
+    }
+
+    protected static function _addDefaultParams(array &$params = array())
+    {
+        bdApi_Data_Helper_Core::addDefaultResponse($params);
+    }
 
 }

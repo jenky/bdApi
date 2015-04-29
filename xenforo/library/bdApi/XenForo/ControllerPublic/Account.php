@@ -2,428 +2,353 @@
 
 class bdApi_XenForo_ControllerPublic_Account extends XFCP_bdApi_XenForo_ControllerPublic_Account
 {
-	public function actionApi()
-	{
-		$visitor = XenForo_Visitor::getInstance();
+    public function actionApi()
+    {
+        $visitor = XenForo_Visitor::getInstance();
 
-		/* @var $clientModel bdApi_Model_Client */
-		$clientModel = $this->getModelFromCache('bdApi_Model_Client');
-		/* @var $clientModel bdApi_Model_Token */
-		$tokenModel = $this->getModelFromCache('bdApi_Model_Token');
+        /* @var $tokenModel bdApi_Model_Token */
+        $tokenModel = $this->getModelFromCache('bdApi_Model_Token');
+        /* @var $userScopeModel bdApi_Model_UserScope */
+        $userScopeModel = $this->getModelFromCache('bdApi_Model_UserScope');
 
-		$clients = $clientModel->getClients(
-				array(
-						'user_id' => XenForo_Visitor::getUserId(),
-				),
-				array(
-				)
-		);
-		$tokens = $tokenModel->getTokens(
-				array(
-						'user_id' => XenForo_Visitor::getUserId(),
-				),
-				array(
-						'join' => bdApi_Model_Token::FETCH_CLIENT,
-				)
-		);
+        $clients = $this->_bdApi_getClientModel()->getClients(array('user_id' => XenForo_Visitor::getUserId()), array());
+        $tokens = $tokenModel->getTokens(array('user_id' => XenForo_Visitor::getUserId()));
+        $userScopes = $userScopeModel->getUserScopesForAllClients(XenForo_Visitor::getUserId());
 
-		$viewParams = array(
-				'clients' => $clients,
-				'tokens' => $tokens,
+        $userScopesByClientIds = array();
+        foreach ($userScopes as $userScope) {
+            if (!isset($userScopesByClientIds[$userScope['client_id']])) {
+                $userScopesByClientIds[$userScope['client_id']] = array(
+                    'last_issue_date' => 0,
+                    'user_scopes' => array(),
+                    'client' => $userScope,
+                );
+            }
 
-				'permClientNew' => $visitor->hasPermission('general', 'bdApi_clientNew'),
-		);
+            $userScopesByClientIds[$userScope['client_id']]['last_issue_date'] = max($userScopesByClientIds[$userScope['client_id']]['last_issue_date'], $userScope['accept_date']);
+            $userScopesByClientIds[$userScope['client_id']]['user_scopes'][$userScope['scope']] = $userScope;
+        }
 
-		return $this->_getWrapper(
-				'account', 'bdApi',
-				$this->responseView('bdApi_ViewPublic_Account_Api_Index', 'bdapi_account_api', $viewParams)
-		);
-	}
+        foreach ($tokens as $token) {
+            if (empty($userScopesByClientIds[$token['client_id']])) {
+                continue;
+            }
 
-	public function actionApiClientAdd()
-	{
-		$visitor = XenForo_Visitor::getInstance();
-		if (!$visitor->hasPermission('general', 'bdApi_clientNew'))
-		{
-			return $this->responseNoPermission();
-		}
+            $userScopesByClientIds[$token['client_id']]['last_issue_date'] = max($userScopesByClientIds[$token['client_id']]['last_issue_date'], $token['issue_date']);
+        }
 
-		/* @var $clientModel bdApi_Model_Client */
-		$clientModel = $this->getModelFromCache('bdApi_Model_Client');
+        $viewParams = array(
+            'clients' => $clients,
+            'userScopesByClientIds' => $userScopesByClientIds,
 
-		if ($this->_request->isPost())
-		{
-			$dwInput = $this->_input->filter(array(
-					'name' => XenForo_Input::STRING,
-					'description' => XenForo_Input::STRING,
-					'redirect_uri' => XenForo_Input::STRING,
-			));
+            'permClientNew' => $visitor->hasPermission('general', 'bdApi_clientNew'),
+        );
 
-			$dw = XenForo_DataWriter::create('bdApi_DataWriter_Client');
-			$dw->bulkSet($dwInput);
+        return $this->_getWrapper('account', 'api', $this->responseView('bdApi_ViewPublic_Account_Api_Index', 'bdapi_account_api', $viewParams));
+    }
 
-			$dw->set('client_id', $clientModel->generateClientId());
-			$dw->set('client_secret', $clientModel->generateClientSecret());
-			$dw->set('user_id', $visitor->get('user_id'));
+    public function actionApiClientAdd()
+    {
+        $visitor = XenForo_Visitor::getInstance();
+        if (!$visitor->hasPermission('general', 'bdApi_clientNew')) {
+            return $this->responseNoPermission();
+        }
 
-			$dw->save();
+        $viewParams = array(
+            'client' => array(),
+        );
 
-			return $this->responseRedirect(
-					XenForo_ControllerResponse_Redirect::RESOURCE_CREATED,
-					XenForo_Link::buildPublicLink('account/api')
-			);
-		}
-		else
-		{
-			$viewParams = array(
-			);
+        return $this->_getWrapper(
+            'account', 'api',
+            $this->responseView('bdApi_ViewPublic_Account_Api_Client_Edit', 'bdapi_account_api_client_edit', $viewParams));
+    }
 
-			return $this->_getWrapper(
-					'account', 'bdApi',
-					$this->responseView('bdApi_ViewPublic_Account_Api_Client_Add', 'bdapi_account_api_client_add', $viewParams)
-			);
-		}
-	}
+    public function actionApiClientEdit()
+    {
+        $client = $this->_bdApi_getClientOrError();
 
-	public function actionApiClientDelete()
-	{
-		$visitor = XenForo_Visitor::getInstance();
-		/* @var $clientModel bdApi_Model_Client */
-		$clientModel = $this->getModelFromCache('bdApi_Model_Client');
+        $viewParams = array(
+            'client' => $client,
+        );
 
-		$clientId = $this->_input->filterSingle('client_id', XenForo_Input::STRING);
-		$client = $clientModel->getClientByid($clientId);
-		if (empty($client))
-		{
-			return $this->responseNoPermission();
-		}
-		if ($client['user_id'] != $visitor->get('user_id'))
-		{
-			return $this->responseNoPermission();
-		}
+        return $this->_getWrapper(
+            'account', 'api',
+            $this->responseView('bdApi_ViewPublic_Account_Api_Client_Edit', 'bdapi_account_api_client_edit', $viewParams)
+        );
+    }
 
-		if ($this->_request->isPost())
-		{
-			$dw = XenForo_DataWriter::create('bdApi_DataWriter_Client');
-			$dw->setExistingData($client, true);
-			$dw->delete();
+    public function actionApiClientSave()
+    {
+        $this->_assertPostOnly();
 
-			return $this->responseRedirect(
-					XenForo_ControllerResponse_Redirect::RESOURCE_UPDATED,
-					XenForo_Link::buildPublicLink('account/api')
-			);
-		}
-		else
-		{
-			$viewParams = array(
-					'client' => $client,
-			);
+        $client = null;
+        $options = array();
+        try {
+            $client = $this->_bdApi_getClientOrError();
+            $options = $client['options'];
+        } catch (Exception $e) {
+            // ignore
+        }
 
-			return $this->_getWrapper(
-					'account', 'bdApi',
-					$this->responseView('bdApi_ViewPublic_Account_Api_Client_Delete', 'bdapi_account_api_client_delete', $viewParams)
-			);
-		}
-	}
+        $dwInput = $this->_input->filter(array(
+            'name' => XenForo_Input::STRING,
+            'description' => XenForo_Input::STRING,
+            'redirect_uri' => XenForo_Input::STRING,
+        ));
 
-	public function actionApiTokenRevoke()
-	{
-		$visitor = XenForo_Visitor::getInstance();
-		/* @var $clientModel bdApi_Model_AuthCode */
-		$authCodeModel = $this->getModelFromCache('bdApi_Model_AuthCode');
-		/* @var $clientModel bdApi_Model_Client */
-		$clientModel = $this->getModelFromCache('bdApi_Model_Client');
-		/* @var $clientModel bdApi_Model_RefreshToken */
-		$refreshTokenModel = $this->getModelFromCache('bdApi_Model_RefreshToken');
-		/* @var $clientModel bdApi_Model_Token */
-		$tokenModel = $this->getModelFromCache('bdApi_Model_Token');
+        $optionsInput = $this->_input->filterSingle('options', XenForo_Input::ARRAY_SIMPLE);
+        $optionsInput = array_merge(array(
+            'whitelisted_domains' => '',
+        ), $options, $optionsInput);
 
-		$tokenId = $this->_input->filterSingle('token_id', XenForo_Input::STRING);
-		$token = $tokenModel->getTokenByid($tokenId, array(
-				'join' => bdApi_Model_Token::FETCH_CLIENT,
-		));
-		if (empty($token))
-		{
-			return $this->responseNoPermission();
-		}
-		if ($token['user_id'] != $visitor->get('user_id'))
-		{
-			return $this->responseNoPermission();
-		}
+        $dw = XenForo_DataWriter::create('bdApi_DataWriter_Client');
+        if (!empty($client)) {
+            $dw->setExistingData($client, true);
+        } else {
+            $dw->set('client_id', $this->_bdApi_getClientModel()->generateClientId());
+            $dw->set('client_secret', $this->_bdApi_getClientModel()->generateClientSecret());
+            $dw->set('user_id', XenForo_Visitor::getUserId());
+        }
 
-		if ($this->_request->isPost())
-		{
-			// besides deleting all the tokens, we will delete all associated auth code/refresh token too
-			XenForo_Db::beginTransaction();
+        $dw->bulkSet($dwInput);
+        $dw->set('options', $optionsInput);
 
-			try
-			{
-				$authCodes = $authCodeModel->getAuthCodes(array(
-						'client_id' => $token['client_id'],
-						'user_id' => $visitor->get('user_id'),
-				));
-				foreach ($authCodes as $authCode)
-				{
-					$authCodeDw = XenForo_DataWriter::create('bdApi_DataWriter_AuthCode');
-					$authCodeDw->setExistingData($authCode, true);
-					$authCodeDw->delete();
-				}
+        $dw->save();
 
-				$tokens = $tokenModel->getTokens(array(
-						'client_id' => $token['client_id'],
-						'user_id' => $visitor->get('user_id'),
-				));
-				foreach ($tokens as $_token)
-				{
-					$tokenDw = XenForo_DataWriter::create('bdApi_DataWriter_Token');
-					$tokenDw->setExistingData($_token, true);
-					$tokenDw->delete();
-				}
+        return $this->responseRedirect(XenForo_ControllerResponse_Redirect::RESOURCE_CREATED, XenForo_Link::buildPublicLink('account/api'));
+    }
 
-				$refreshTokens = $refreshTokenModel->getRefreshTokens(array(
-						'client_id' => $token['client_id'],
-						'user_id' => $visitor->get('user_id'),
-				));
-				foreach ($refreshTokens as $refreshToken)
-				{
-					$refreshTokenDw = XenForo_DataWriter::create('bdApi_DataWriter_RefreshToken');
-					$refreshTokenDw->setExistingData($refreshToken, true);
-					$refreshTokenDw->delete();
-				}
+    public function actionApiClientDelete()
+    {
+        $client = $this->_bdApi_getClientOrError();
 
-				XenForo_Db::commit();
-			}
-			catch (Exception $e)
-			{
-				XenForo_Db::rollback();
-				throw $e;
-			}
+        if ($this->_request->isPost()) {
+            $dw = XenForo_DataWriter::create('bdApi_DataWriter_Client');
+            $dw->setExistingData($client, true);
+            $dw->delete();
 
-			return $this->responseRedirect(
-					XenForo_ControllerResponse_Redirect::RESOURCE_UPDATED,
-					XenForo_Link::buildPublicLink('account/api')
-			);
-		}
-		else
-		{
-			$viewParams = array(
-					'token' => $token,
-			);
+            return $this->responseRedirect(XenForo_ControllerResponse_Redirect::RESOURCE_UPDATED, XenForo_Link::buildPublicLink('account/api'));
+        } else {
+            $viewParams = array('client' => $client);
 
-			return $this->_getWrapper(
-					'account', 'bdApi',
-					$this->responseView('bdApi_ViewPublic_Account_Api_Token_Revoke', 'bdapi_account_api_token_revoke', $viewParams)
-			);
-		}
-	}
+            return $this->_getWrapper('account', 'api', $this->responseView('bdApi_ViewPublic_Account_Api_Client_Delete', 'bdapi_account_api_client_delete', $viewParams));
+        }
+    }
 
-	public function actionApiData()
-	{
-		$callback = $this->_input->filterSingle('callback', XenForo_Input::STRING);
-		$cmd = $this->_input->filterSingle('cmd', XenForo_Input::STRING);
-		$clientId = $this->_input->filterSingle('client_id', XenForo_Input::STRING);
-		$data = array(
-		);
+    public function actionApiUpdateScope()
+    {
+        $visitor = XenForo_Visitor::getInstance();
 
-		/* @var $oauth2Model bdApi_Model_OAuth2 */
-		$oauth2Model = $this->getModelFromCache('bdApi_Model_OAuth2');
+        /* @var $oauth2Model bdApi_Model_OAuth2 */
+        $oauth2Model = $this->getModelFromCache('bdApi_Model_OAuth2');
 
-		/* @var $tokenModel bdApi_Model_Token */
-		$tokenModel = $oauth2Model->getTokenModel();
+        $client = $this->_bdApi_getClientOrError(false);
 
-		/* @var $clientModel bdApi_Model_Client */
-		$clientModel = $oauth2Model->getClientModel();
+        $userScopes = $oauth2Model->getUserScopeModel()->getUserScopes($client['client_id'], $visitor['user_id']);
+        if (empty($userScopes)) {
+            return $this->responseNoPermission();
+        }
 
-		$client = $clientModel->getClientById($clientId);
-		$visitor = XenForo_Visitor::getInstance();
+        if ($this->isConfirmedPost()) {
+            $isRevoke = $this->_input->filterSingle('revoke', XenForo_Input::STRING);
+            $isRevoke = !empty($isRevoke);
 
-		if (!empty($client) AND $visitor['user_id'] > 0)
-		{
-			switch ($cmd)
-			{
-				case 'authorized':
-					$scope = $this->_input->filterSingle('scope', XenForo_Input::STRING);
-					$data[$cmd] = 0;
-						
-					if ($data[$cmd] === 0 AND $clientModel->canAutoAuthorize($client, $scope))
-					{
-						// this client has auto authorize setting for the requested scope
-						// response with authorized = 1
-						// note: we don't have (and don't need) an access token for now
-						// but in case the client application request authorization, it
-						// will be granted automatically anyway
-						$data[$cmd] = 1;
-					}
-						
-					if ($data[$cmd] === 0)
-					{
-						// start looking for valid access token
-						$tokens = $tokenModel->getTokens(array(
-								'client_id' => $client['client_id'],
-								'user_id' => $visitor['user_id'],
-						));
+            XenForo_Db::beginTransaction();
 
-						foreach ($tokens as $token)
-						{
-							if (!$tokenModel->hasExpired($client, $token)
-							AND $tokenModel->hasScope($client, $token, $scope)
-							)
-							{
-								$data[$cmd] = 1;
-								break; // foreach ($tokens as $token)
-							}
-						}
-					}
-						
-					if ($data[$cmd] === 1)
-					{
-						$data['user_id'] = $visitor['user_id'];
-					}
-					break; // switch ($cmd)
-			}
+            try {
+                $scopes = $this->_input->filterSingle('scopes', XenForo_Input::STRING, array('array' => true));
+                if (empty($scopes)) {
+                    // no scopes are selected, that equals revoking
+                    $isRevoke = true;
+                }
+                $userScopesChanged = false;
 
-			$clientModel->signApiData($client, $data);
-		}
+                foreach ($userScopes as $userScope) {
+                    if ($isRevoke OR !in_array($userScope['scope'], $scopes, true)) {
+                        // remove the accepted user scope
+                        $oauth2Model->getUserScopeModel()->deleteUserScope($client['client_id'], $visitor['user_id'], $userScope['scope']);
+                        $userScopesChanged = true;
+                    }
+                }
 
-		$viewParams = array(
-				'callback' => $callback,
-				'cmd' => $cmd,
-				'client_id' => $clientId,
-				'data' => $data,
-		);
+                if ($userScopesChanged) {
+                    // invalidate all existing tokens
+                    $oauth2Model->getAuthCodeModel()->deleteAuthCodes($client['client_id'], $visitor['user_id']);
+                    $oauth2Model->getRefreshTokenModel()->deleteRefreshTokens($client['client_id'], $visitor['user_id']);
+                    $oauth2Model->getTokenModel()->deleteTokens($client['client_id'], $visitor['user_id']);
+                }
 
-		return $this->responseView('bdApi_ViewPublic_Account_Api_Data', '', $viewParams);
-	}
+                if ($isRevoke) {
+                    // unsubscribe for user and notification
+                    $oauth2Model->getSubscriptionModel()->deleteSubscriptions($client['client_id'], bdApi_Model_Subscription::TYPE_USER, $visitor['user_id']);
+                    $oauth2Model->getSubscriptionModel()->deleteSubscriptions($client['client_id'], bdApi_Model_Subscription::TYPE_NOTIFICATION, $visitor['user_id']);
+                }
 
-	public function actionAuthorize()
-	{
-		/* @var $oauth2Model bdApi_Model_OAuth2 */
-		$oauth2Model = $this->getModelFromCache('bdApi_Model_OAuth2');
+                XenForo_Db::commit();
+            } catch (Exception $e) {
+                XenForo_Db::rollback();
+                throw $e;
+            }
 
-		/* @var $tokenModel bdApi_Model_Token */
-		$tokenModel = $oauth2Model->getTokenModel();
+            return $this->responseRedirect(XenForo_ControllerResponse_Redirect::RESOURCE_UPDATED, XenForo_Link::buildPublicLink('account/api'));
+        } else {
+            $viewParams = array(
+                'client' => $client,
+                'userScopes' => $userScopes,
+            );
 
-		/* @var $clientModel bdApi_Model_Client */
-		$clientModel = $oauth2Model->getClientModel();
+            return $this->_getWrapper('account', 'api', $this->responseView('bdApi_ViewPublic_Account_Api_UpdateScope', 'bdapi_account_api_update_scope', $viewParams));
+        }
+    }
 
-		$authorizeParams = $this->_input->filter($oauth2Model->getAuthorizeParamsInputFilter());
+    public function actionAuthorize()
+    {
+        /* @var $oauth2Model bdApi_Model_OAuth2 */
+        $oauth2Model = $this->getModelFromCache('bdApi_Model_OAuth2');
 
-		if ($this->_request->isPost())
-		{
-			// allow user to deny some certain scopes
-			// only when this is a POST request, this should keep us safe from some vectors of attack
-			$scopesIncluded = $this->_input->filterSingle('scopes_included', XenForo_Input::UINT);
-			$scopes = $this->_input->filterSingle('scopes', XenForo_Input::ARRAY_SIMPLE);
-			if (!empty($scopesIncluded))
-			{
-				$authorizeParams['scope'] = bdApi_Template_Helper_Core::getInstance()->scopeJoin($scopes);
-			}
-		}
+        $authorizeParams = $this->_input->filter($oauth2Model->getAuthorizeParamsInputFilter());
 
-		$client = $clientModel->getClientById($authorizeParams['client_id']);
-		if (empty($client))
-		{
-			throw new XenForo_Exception(new XenForo_Phrase('bdapi_authorize_error_client_x_not_found', array('client' => $authorizeParams['client_id'])));
-		}
+        if ($this->_request->isPost()) {
+            // allow user to deny some certain scopes
+            // only when this is a POST request, this should keep us safe from some vectors
+            // of attack
+            $scopesIncluded = $this->_input->filterSingle('scopes_included', XenForo_Input::UINT);
+            $scopes = $this->_input->filterSingle('scopes', XenForo_Input::ARRAY_SIMPLE);
+            if (!empty($scopesIncluded)) {
+                $authorizeParams['scope'] = bdApi_Template_Helper_Core::getInstance()->scopeJoin($scopes);
+            }
+        }
 
-		// sondh@2013-03-19
-		// this is a non-standard implementation: bypass confirmation dialog if the client
-		// has appropriate option set
-		$bypassConfirmation = false;
-		if ($clientModel->canAutoAuthorize($client, $authorizeParams['scope']))
-		{
-			$bypassConfirmation = true;
-			$accepted = true;
-		}
-		
-		// sondh@2013-05-04
-		// this is a non-standard implementation: bypass confirmation dialog if user has an active token
-		// this removed the change set sondh@2013-02-17 (try to get a working access token if the response_type == OAUTH2_AUTH_RESPONSE_TYPE_AUTH_CODE) 
-		$activeTokens = $tokenModel->getTokens(array(
-				'client_id' => $client['client_id'],
-				'user_id' => XenForo_Visitor::getUserId(),
-		));
-		foreach ($activeTokens as $activeToken)
-		{
-			if ($tokenModel->hasExpired($client, $activeToken)) continue; // expired
-			if (!$tokenModel->hasScope($client, $activeToken, $authorizeParams['scope'])) continue; // not enough scope
+        $client = $oauth2Model->getClientModel()->getClientById($authorizeParams['client_id']);
+        if (empty($client)) {
+            throw new XenForo_Exception(new XenForo_Phrase('bdapi_authorize_error_client_x_not_found', array('client' => $authorizeParams['client_id'])));
+        }
 
-			$bypassConfirmation = true;
-			$accepted = true;
-		}
+        // sondh@2013-03-19
+        // this is a non-standard implementation: bypass confirmation dialog if the
+        // client has appropriate option set
+        $bypassConfirmation = false;
+        if ($oauth2Model->getClientModel()->canAutoAuthorize($client, $authorizeParams['scope'])) {
+            $bypassConfirmation = true;
+        }
 
-		// use the server get authorize params method to perform some extra validation
-		$serverAuthorizeParams = $oauth2Model->getServer()->getAuthorizeParams();
-		$authorizeParams = array_merge($serverAuthorizeParams, $authorizeParams);
+        // sondh@2014-09-26
+        // bypass confirmation if all requested scopes have been granted at some point
+        // in old version of this add-on, it checked for scope from active tokens
+        // from now on, we look for all scopes (no expiration) for better user experience
+        // if a token expires, it should not invalidate all user's choices
+        $userScopes = $oauth2Model->getUserScopeModel()->getUserScopes($client['client_id'], XenForo_Visitor::getUserId());
+        $paramScopes = bdApi_Template_Helper_Core::getInstance()->scopeSplit($authorizeParams['scope']);
+        $paramScopesNew = array();
+        foreach ($paramScopes as $paramScope) {
+            if (!isset($userScopes[$paramScope])) {
+                $paramScopesNew[] = $paramScope;
+            }
+        }
+        if (empty($paramScopesNew)) {
+            $bypassConfirmation = true;
+        } else {
+            $authorizeParams['scope'] = bdApi_Template_Helper_Core::getInstance()->scopeJoin($paramScopesNew);
+        }
 
-		if ($this->_request->isPost() OR $bypassConfirmation)
-		{
-			$accept = $this->_input->filterSingle('accept', XenForo_Input::STRING);
-			$accepted = !!$accept;
+        // use the server get authorize params method to perform some extra validation
+        $serverAuthorizeParams = $oauth2Model->getServer()->getAuthorizeParams();
+        $authorizeParams = array_merge($serverAuthorizeParams, $authorizeParams);
 
-			if ($bypassConfirmation)
-			{
-				// sondh@2013-03-19
-				// of course if the dialog was bypassed, $accepted should be true
-				$accepted = true;
-			}
+        if ($this->_request->isPost() OR $bypassConfirmation) {
+            $accept = $this->_input->filterSingle('accept', XenForo_Input::STRING);
+            $accepted = !!$accept;
 
-			$oauth2Model->getServer()->finishClientAuthorization($accepted, $authorizeParams);
+            if ($bypassConfirmation) {
+                // sondh@2013-03-19
+                // of course if the dialog was bypassed, $accepted should be true
+                $accepted = true;
+            }
 
-			// finishClientAuthorization will redirect the page for us...
-			exit;
-		}
-		else
-		{
-			$viewParams = array(
-					'client' => $client,
-					'authorizeParams' => $authorizeParams,
-			);
+            if ($accepted) {
+                // sondh@2014-09-26
+                // get all up to date user scopes and include in the new token
+                // that means client only need to ask for a scope once and they will always have
+                // that scope in future authorizations, even if they ask for less scope!
+                // making it easy for client dev, they don't need to track whether they requested
+                // a scope before. Just check the most recent token for that information.
+                $paramScopes = bdApi_Template_Helper_Core::getInstance()->scopeSplit($authorizeParams['scope']);
+                foreach ($userScopes as $userScope => $userScopeInfo) {
+                    if (!in_array($userScope, $paramScopes, true)) {
+                        $paramScopes[] = $userScope;
+                    }
+                }
+                $paramScopes = array_unique($paramScopes);
+                asort($paramScopes);
+                $authorizeParams['scope'] = bdApi_Template_Helper_Core::getInstance()->scopeJoin($paramScopes);
+            }
 
-			return $this->_getWrapper(
-					'account', 'bdApi',
-					$this->responseView('bdApi_ViewPublic_Account_Authorize', 'bdapi_account_authorize', $viewParams)
-			);
-		}
-	}
+            $oauth2Model->getServer()->finishClientAuthorization($accepted, $authorizeParams);
 
-	protected function _preDispatch($action)
-	{
-		try
-		{
-			return parent::_preDispatch($action);
-		}
-		catch (XenForo_ControllerResponse_Exception $e)
-		{
-			if ($action === 'Authorize')
-			{
-				// this is our action and an exception is thrown
-				// check to see if it is a registrationRequired error
-				$controllerResponse = $e->getControllerResponse();
-				if ($controllerResponse instanceof XenForo_ControllerResponse_Reroute
-				AND $controllerResponse->controllerName == 'XenForo_ControllerPublic_Error'
-						AND $controllerResponse->action == 'registrationRequired')
-				{
-					// so it is...
-					$requestPaths = XenForo_Application::get('requestPaths');
-					$session = XenForo_Application::getSession();
-					$session->set('bdApi_authorizePending', $requestPaths['fullUri']);
+            // finishClientAuthorization will redirect the page for us...
+            exit;
+        } else {
+            $viewParams = array(
+                'client' => $client,
+                'authorizeParams' => $authorizeParams,
+            );
 
-					$controllerResponse->action = 'authorizeGuest';
-				}
-			}
+            return $this->_getWrapper('account', 'api', $this->responseView('bdApi_ViewPublic_Account_Authorize', 'bdapi_account_authorize', $viewParams));
+        }
+    }
 
-			throw $e;
-		}
-	}
+    public function actionApiData()
+    {
+        return $this->responseReroute('XenForo_ControllerPublic_Misc', 'api-data');
+    }
 
-	protected function _checkCsrf($action)
-	{
-		if ($action === 'ApiData')
-		{
-			return;
-		}
+    protected function _preDispatch($action)
+    {
+        try {
+            parent::_preDispatch($action);
+        } catch (XenForo_ControllerResponse_Exception $e) {
+            if ($action === 'Authorize') {
+                // this is our action and an exception is thrown
+                // check to see if it is a registrationRequired error
+                $controllerResponse = $e->getControllerResponse();
+                if ($controllerResponse instanceof XenForo_ControllerResponse_Reroute AND $controllerResponse->controllerName == 'XenForo_ControllerPublic_Error' AND $controllerResponse->action == 'registrationRequired') {
+                    // so it is...
+                    $requestPaths = XenForo_Application::get('requestPaths');
+                    $session = XenForo_Application::getSession();
+                    $session->set('bdApi_authorizePending', $requestPaths['fullUri']);
 
-		return parent::_checkCsrf($action);
-	}
+                    $controllerResponse->action = 'authorizeGuest';
+                }
+            }
+
+            throw $e;
+        }
+    }
+
+    protected function _bdApi_getClientOrError($verifyCanEdit = true)
+    {
+        $clientId = $this->_input->filterSingle('client_id', XenForo_Input::STRING);
+        if (empty($clientId)) {
+            throw $this->getNoPermissionResponseException();
+        }
+
+        $client = $this->_bdApi_getClientModel()->getClientByid($clientId);
+        if (empty($client)) {
+            throw $this->getNoPermissionResponseException();
+        }
+
+        if ($verifyCanEdit AND $client['user_id'] != XenForo_Visitor::getUserId()) {
+            throw $this->getNoPermissionResponseException();
+        }
+
+        return $client;
+    }
+
+    /**
+     * @return bdApi_Model_Client
+     */
+    protected function _bdApi_getClientModel()
+    {
+        return $this->getModelFromCache('bdApi_Model_Client');
+    }
 }

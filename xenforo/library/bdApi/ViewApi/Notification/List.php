@@ -2,18 +2,28 @@
 
 class bdApi_ViewApi_Notification_List extends bdApi_ViewApi_Base
 {
-	public function renderJson()
-	{
-		$notifications = $this->_params['notifications'];
+    public function prepareParams()
+    {
+        // render notification html
+        $notifications = &$this->_params['notifications'];
+        $templates = bdApi_ViewApi_Helper_Alert::getTemplates($this, $this->_params['_alerts'], $this->_params['_alertHandlers']);
+        foreach ($notifications as $key => &$notification) {
+            $notification['notification_html'] = $templates[$notification['notification_id']]['template'];
+        }
 
-		$templates = XenForo_ViewPublic_Helper_Alert::getTemplates($this, $this->_params['alerts'], $this->_params['alertHandlers']);
+        call_user_func_array(array(
+            'bdApi_ViewApi_Helper_Subscription',
+            'prepareDiscoveryParams'
+        ), array(
+            &$this->_params,
+            $this->_response,
+            bdApi_Model_Subscription::TYPE_NOTIFICATION,
+            XenForo_Visitor::getUserId(),
+            XenForo_Link::buildApiLink('notifications', null, array(OAUTH2_TOKEN_PARAM_NAME => '')),
+            XenForo_Visitor::getInstance()->get('bdapi_user_notification'),
+        ));
 
-		foreach ($notifications as $key => &$notification)
-		{
-			$notification['notification_html'] = strval($templates[$notification['notification_id']]['template']);
-		}
-
-		return array('notifications' => $notifications);
-	}
+        parent::prepareParams();
+    }
 
 }

@@ -2,55 +2,64 @@
 
 class bdApi_ControllerApi_Index extends bdApi_ControllerApi_Abstract
 {
-	public function actionGetIndex()
-	{
-		$systemInfo = array();
+    public function actionGetIndex()
+    {
+        /* @var $session bdApi_Session */
+        $session = XenForo_Application::getSession();
 
-		if (XenForo_Application::getSession()->checkScope(bdApi_Model_OAuth2::SCOPE_POST))
-		{
-			$systemInfo = array(
-				// YYYYMMDD and 2 digits number (01-99), allowing maximum 99 revisions/day
-				'api_revision' => 2014030701,
-				'api_modules' => $this->_getModules(),
-			);
-		}
+        $systemInfo = array();
+        if ($session->checkScope(bdApi_Model_OAuth2::SCOPE_POST)) {
+            $systemInfo = array(
+                // YYYYMMDD and 2 digits number (01-99), allowing maximum 99 revisions/day
+                'api_revision' => 2014030701,
+                'api_modules' => $this->_getModules(),
+            );
+        }
 
-		$data = array(
-			'links' => array(
-				'categories' => bdApi_Link::buildApiLink('categories'),
-				'conversations' => bdApi_Link::buildApiLink('conversations'),
-				'conversation-messages' => bdApi_Link::buildApiLink('conversation-messages'),
-				'notifications' => bdApi_Link::buildApiLink('notifications'),
+        $data = array(
+            'links' => array(
+                'conversations' => XenForo_Link::buildApiLink('conversations'),
+                'conversation-messages' => XenForo_Link::buildApiLink('conversation-messages'),
+                'notifications' => XenForo_Link::buildApiLink('notifications'),
 
-				'forums' => bdApi_Link::buildApiLink('forums'),
-				'posts' => bdApi_Link::buildApiLink('posts'),
-				'search' => bdApi_Link::buildApiLink('search'),
-				'threads' => bdApi_Link::buildApiLink('threads'),
-				'threads/recent' => bdApi_Link::buildApiLink('threads/recent'),
-				'threads/new' => bdApi_Link::buildApiLink('threads/new'),
-				'users' => bdApi_Link::buildApiLink('users'),
+                'search' => XenForo_Link::buildApiLink('search'),
+                'navigation' => XenForo_Link::buildApiLink('navigation', array(), array('parent' => 0)),
+                'threads' => XenForo_Link::buildApiLink('threads'),
+                'threads/recent' => XenForo_Link::buildApiLink('threads/recent'),
+                'threads/new' => XenForo_Link::buildApiLink('threads/new'),
+                'posts' => XenForo_Link::buildApiLink('posts'),
+                'users' => XenForo_Link::buildApiLink('users'),
 
-				'oauth_authorize' => bdApi_Link::buildApiLink('oauth/authorize', array(), array(OAUTH2_TOKEN_PARAM_NAME => '')),
-				'oauth_token' => bdApi_Link::buildApiLink('oauth/token', array(), array(OAUTH2_TOKEN_PARAM_NAME => '')),
-			),
-			'system_info' => $systemInfo,
-		);
+                'batch' => XenForo_Link::buildApiLink('batch'),
+                'subscriptions' => XenForo_Link::buildApiLink('subscriptions'),
 
-		return $this->responseData('bdApi_ViewApi_Index', $data);
-	}
+                'oauth_authorize' => XenForo_Link::buildApiLink('oauth/authorize', array(), array(OAUTH2_TOKEN_PARAM_NAME => '')),
+                'oauth_token' => XenForo_Link::buildApiLink('oauth/token', array(), array(OAUTH2_TOKEN_PARAM_NAME => '')),
+            ),
+            'system_info' => $systemInfo,
+        );
 
-	protected function _getModules()
-	{
-		return array(
-			'forum' => 2014053101,
-			'oauth2' => 2014030701,
-		);
-	}
+        return $this->responseData('bdApi_ViewApi_Index', $data);
+    }
 
-	protected function _getScopeForAction($action)
-	{
-		// no scope checking for this controller
-		return false;
-	}
+    public function actionOptionsCors()
+    {
+        return $this->responseData('bdApi_ViewApi_Index_OptionsCors');
+    }
+
+    protected function _getModules()
+    {
+        return array(
+            'forum' => 2015042301,
+            'oauth2' => 2015030902,
+            'subscription' => 2014092301,
+        );
+    }
+
+    protected function _getScopeForAction($action)
+    {
+        // no scope checking for this controller
+        return false;
+    }
 
 }
